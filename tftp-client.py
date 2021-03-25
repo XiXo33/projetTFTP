@@ -23,6 +23,7 @@ parser.add_argument('filename', type=str)
 parser.add_argument('targetname', type=str, nargs='?', default='')
 args = parser.parse_args()
 
+
 # change target filename
 if args.targetname == '': args.targetname = args.filename
 
