@@ -4,4 +4,3 @@ WARNING = '\033[91m'
 CYAN = '\033[96m'
 YELLOW = '\033[33m'
 PINK = '\033[95m'
-
