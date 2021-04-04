@@ -78,7 +78,6 @@ def envoieDAT(socket, addr_server, addr_client, paquet, a):
     message_a_envoyer = enTETE + DATx + CYAN + "="  + str(opcodeDAT + a + paquet) + END
     
     envoyerMessage(socket, addr_client, message_a_envoyer)
-    increment(a)
     
 def get_file(filename, addr_client, data):
     s = initSocket()
@@ -100,14 +99,22 @@ def get_file(filename, addr_client, data):
                 envoyerMessage(s, addr_client, message_erreur)
                 break
             
-                
+            a = increment(a)   
+                   
             if len(paquet) < 512:
                 break
             
         s.close()
         
 def put_file():
-    pass
+    s = initSocket()
+    connect(s, 0) # Mettre 0 comme numéro de port permet d'en choisir un aléatoirement parmi ceux de libre
+    addr_server = s.getsockname() # On récupère l'adresse du serveur et donc le nouvel numéro de port qui sera utilisé durant l'échange avec le client
+    a = b'\x00\x01'
+    opcodeACK = b'\x00\x04'
+    messageAenvoyer = opcodeACK + a
+    envoyerMessage(s, addr_server, messageAenvoyer) 
+
 
 def isDAT(message):
     message = message.split(']')
@@ -163,11 +170,13 @@ def runServer(addr, timeout, thread):
 
 
 def put(addr, filename, targetname, blksize, timeout):
-    s = initSocket()
+    putting_file = open(targetname, "rb")
+    s = initSocket() 
     messageAenvoyer = "\x00\x02"+filename+"\x00octet\x00"
     envoyerMessage(s, addr,messageAenvoyer)
-    data, _ = s.recvfrom(1024)
-    print(data.decode("ascii"))
+    while True:
+        data, addr_server = s.recvfrom(1024)
+        print(data.decode("ascii"))
     s.close()
 
 ########################################################################
@@ -183,9 +192,9 @@ def get(addr, filename, targetname, blksize, timeout):
         data, addr_serv = s.recvfrom(1024)
         print(data.decode("ascii"))
         if isDAT(data.decode('ascii')):
-            opcodeDAT = b'\x00\x04'
-            messageAenvoyer = opcodeDAT + a
-            increment(a)
+            opcodeACK = b'\x00\x04'
+            messageAenvoyer = opcodeACK + a
+            a = increment(a)
             envoyerMessage(s, addr_serv, messageAenvoyer) 
             getting_file.write(data) # On écrit à chaque tour de boucle le paquet de taille blksize dans le fichier targetname
             

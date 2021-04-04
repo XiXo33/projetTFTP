@@ -5,7 +5,12 @@ CYAN = '\033[96m'
 YELLOW = '\033[33m'
 PINK = '\033[95m'
 
-message= "[myserver:53804 -> myclient:51501] DAT1=b'\x00\x03\x00\x01OO zebi  mais wesh\ng saute une ligne laaa\nen vrai c chelou'"
+def increment(a):
+    """incrémente de 1 un byte"""
+    a = int.from_bytes(a, byteorder='big') + 1
+    return a.to_bytes(2, byteorder='big')
 
 
-print(message[40:])
+a = b'\x00\x01'
+
+increment(a)
