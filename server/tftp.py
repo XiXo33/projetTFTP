@@ -4,6 +4,7 @@ TFTP Module.
 
 import socket
 import sys
+from typing import Container
 OK = '\033[92m'
 END = '\033[0m'
 WARNING = '\033[91m'
@@ -26,7 +27,10 @@ def initSocket():
     
 def envoyerMessage(socket, addr, message):
     try:
-        socket.sendto(message.encode('ascii'), addr)
+        if type(message) == bytes:
+            socket.sendto(message, addr)
+        else:
+            socket.sendto(message.encode('ascii'), addr)
     except Exception as e:
         print(WARNING + "[-] Erreur : " + END, e)
         sys.exit(3)
@@ -87,7 +91,7 @@ def get_file(filename, addr_client, data):
             envoieDAT(s, addr_server, addr_client, paquet, a) 
             
             data, _ = s.recvfrom(1500)
-            
+
             if quelOpcode(is_ACK(data)) == "ACK": # Si le message a bien été acquité alors on affiche le message d'acquittement
                 message_a_envoyer = PINK + "[myclient:" + str(addr_client[1]) + " -> myserver:" + str(addr_server[1]) + "] " + YELLOW + "ACK" + str(int.from_bytes(a, byteorder='big')) + CYAN + "=" + str(data) + END
                 envoyerMessage(s, addr_client, message_a_envoyer)
@@ -106,11 +110,12 @@ def put_file():
     pass
 
 def isDAT(message):
-    pass
+    message = message.split(']')
+    return message[1][6:9] == 'DAT'
 
 def connexionOFClient(list_client, addr_client):
     """Ajoute un client à la liste des clients en ligne et affiche un messsage côté serveur de connexion"""
-    list_client.append(addr_client) 
+    list_client.append(addr_client[1]) 
     print(CYAN + "Le client " + PINK + str(addr_client[1]) + CYAN + " s'est connecté" + END)
 
 def whatHewants(opcode, addr_client, filename):
@@ -139,13 +144,12 @@ def runServer(addr, timeout, thread):
     connect(s, addr[1]) # Connexion au port par défault 6969
     while True:
         data, addr_client = s.recvfrom(1500)
-    
         if addr_client not in list_client: 
             connexionOFClient(list_client, addr_client)
             opcode, filename, mode = decode_WRQandRRQ(data) # On décode la requête client
             whatHewants(opcode, addr_client, filename)
             send_whatHewants(s, addr, addr_client, data, opcode)
-            
+                                    
         if opcode == "RRQ":
             get_file(filename, addr_client, data)
         elif opcode == "WRQ":
@@ -168,29 +172,24 @@ def put(addr, filename, targetname, blksize, timeout):
 
 ########################################################################
 
-
 def get(addr, filename, targetname, blksize, timeout):
     getting_file = open(targetname, "wb")
     s = initSocket()
     messageAenvoyer = "\x00\x01"+filename+"\x00octet\x00"
     envoyerMessage(s, addr,messageAenvoyer)
-    i = 1
     a = b'\x00\x01'
     continuer = True
     while continuer:
         data, addr_serv = s.recvfrom(1024)
         print(data.decode("ascii"))
-        if isDAT(data):
+        if isDAT(data.decode('ascii')):
             opcodeDAT = b'\x00\x04'
             messageAenvoyer = opcodeDAT + a
             increment(a)
-            envoyerMessage(s, addr_serv, messageAenvoyer) # PRISE EN CHARGE DE L'ENVOI DE BYTE
-            getting_file.write(data)
-            if len(data) < 512:
-                break
-        i += 1
-        
-    getting_file.close()
+            envoyerMessage(s, addr_serv, messageAenvoyer) 
+            getting_file.write(data) # On écrit à chaque tour de boucle le paquet de taille blksize dans le fichier targetname
+            
+    getting_file.close() # On ferme le fichier car on en a plus besoin
     s.close()
 
 
