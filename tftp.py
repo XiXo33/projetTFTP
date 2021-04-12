@@ -1,7 +1,7 @@
 """
 TFTP Module.
 """
-
+import time
 import socket
 import sys
 OK = '\033[92m'
@@ -74,7 +74,8 @@ def get_file(filename, addr_client, data):
             
         s.close()
         
-def put_file(addr_client):
+def put_file(addr_client, targetname):
+    putting_file = open(targetname, "wb+")
     s = initSocket()
     connect(s, 0) # Mettre 0 comme numéro de port permet d'en choisir un aléatoirement parmi ceux de libre
     addr_server = s.getsockname() # On récupère l'adresse du serveur et donc le nouvel numéro de port qui sera utilisé durant l'échange avec le client
@@ -87,9 +88,13 @@ def put_file(addr_client):
         if decodeOPCODE(data) != 3: # Si le data n'a pas été envoyé alors on affiche un message d'erreur
                 print(WARNING + "ERROR" + END)
                 break
+            
+        putting_file.write(data[4:])
+        
         if len(data) < 512:
             break
         
+    putting_file.close()
     s.close()
     
 
@@ -105,7 +110,7 @@ def connexionOFClient(list_client, addr_client):
 
 def whatHewants(opcode, addr_client, filename):
     """Affiche un message côté serveur de si le client veut récupérer ou envoyer un fichier"""
-    if opcode == "RRQ": choice = "récupérer"
+    if opcode == 1: choice = "récupérer"
     else: choice = "déposer"
     print(CYAN + "Le client " + PINK + str(addr_client[1]) + CYAN + " souhaite " + choice + " le fichier " + YELLOW + filename + END)
     
@@ -132,7 +137,7 @@ def runServer(addr, timeout, thread):
         if opcode == 1:
             get_file(filename, addr_client, data)
         elif opcode == 2:
-            put_file(addr_client)
+            put_file(addr_client, filename)
             
     s.close()
 
@@ -151,22 +156,26 @@ def put(addr, filename, targetname, blksize, timeout):
 
     a = b'\x00\x00'
     opcodeDAT = b'\x00\x03' 
+    opcodeACK = b'\x00\x04'
     
     while True:
         data, addr_serv = s.recvfrom(1024)
+        s.settimeout(timeout)
         if decodeOPCODE(data) == 4:
-            print(PINK + "[myserver:" + str(addr_serv[1]) + " -> myclient:" + str(addr_client[1]) + "] " + YELLOW + "ACK" + str(int.from_bytes(a, byteorder='big')) + CYAN + "=" + str(messageAenvoyer) + END)
-           
             
-            paquet = putting_file.read(512) 
+            messageACK = opcodeACK + a
+            print(PINK + "[myserver:" + str(addr_serv[1]) + " -> myclient:" + str(addr_client[1]) + "] " + YELLOW + "ACK" + str(int.from_bytes(a, byteorder='big')) + CYAN + "=" + str(messageACK) + END)
+            a = increment(a)
+            
+            paquet = putting_file.read(blksize) 
             envoyerMessage(s, addr_serv, opcodeDAT + a + paquet)
             
-            print(PINK + "[myclient:" + str(addr_client[1]) + " -> myserveur:" + str(addr_serv[1]) + "] " + YELLOW + "DAT" + str(int.from_bytes(a+b'\x00\x01', byteorder='big')) + CYAN + "=" + str(paquet) + END)
+            print(PINK + "[myclient:" + str(addr_client[1]) + " -> myserveur:" + str(addr_serv[1]) + "] " + YELLOW + "DAT" + str(int.from_bytes(a, byteorder='big')) + CYAN + "=" + str(opcodeDAT + a + paquet) + END)
             
-            if len(paquet) < 512: 
+            if len(paquet) < blksize: 
                 break
             
-            increment(a)
+            # increment(a)
         else:
             print(WARNING + "ERROR" + END)
             
@@ -181,7 +190,9 @@ def get(addr, filename, targetname, blksize, timeout):
     s = initSocket()
     addr_client = s.getsockname()
     
-    messageAenvoyer = b"\x00\x01"+filename.encode('ascii')+b"\x00octet\x00"
+    bsize = blksize.to_bytes(2, byteorder="big")
+    
+    messageAenvoyer = b"\x00\x01"+filename.encode('ascii')+b"\x00octet\x00" 
     envoyerMessage(s, addr,messageAenvoyer)
     
     print(PINK + "[myclient:" + str(addr_client[1]) + " -> myserveur:" + str(addr[1]) + "] " + YELLOW + "RRQ" + CYAN + "=" + str(messageAenvoyer) + END)
@@ -201,7 +212,7 @@ def get(addr, filename, targetname, blksize, timeout):
             
             getting_file.write(data[4:]) # On écrit à chaque tour de boucle le paquet de taille blksize dans le fichier targetname
             
-            if len(data) < 512: 
+            if len(data) < blksize: 
                 break
 
     getting_file.close() 
