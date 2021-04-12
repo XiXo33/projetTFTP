@@ -140,8 +140,10 @@ def runServer(addr, timeout, thread):
                                     
         if opcode == 1:
             get_file(filename, addr_client, data, blksize)
+            list_client.remove(addr_client[1])
         elif opcode == 2:
             put_file(addr_client, filename, blksize)
+            list_client.remove(addr_client[1])
             
     s.close()
 
@@ -152,6 +154,7 @@ def runServer(addr, timeout, thread):
 def put(addr, filename, targetname, blksize, timeout):
     putting_file = open(targetname, "rb")
     s = initSocket() 
+    connect(s, 0)
     addr_client = s.getsockname()
     message_blksize = b''
     x0 = b'\x00'
@@ -178,7 +181,7 @@ def put(addr, filename, targetname, blksize, timeout):
             a = increment(a)
             
             paquet = putting_file.read(blksize) 
-            envoyerMessage(s, addr_serv, x0 + opcodeDAT + a + paquet)
+            envoyerMessage(s, addr_serv, x0 + opcodeDAT + x0 + a + paquet)
             
             print(PINK + "[myclient:" + str(addr_client[1]) + " -> myserveur:" + str(addr_serv[1]) + "] " + YELLOW + "DAT" + str(int.from_bytes(a, byteorder='big')) + CYAN + "=" + str(opcodeDAT + a + paquet) + END)
             
@@ -198,6 +201,7 @@ def get(addr, filename, targetname, blksize, timeout):
     getting_file = open(targetname, "wb+")
     
     s = initSocket()
+    connect(s, 0)
     addr_client = s.getsockname()
     x0 = b'\x00'
     message_blksize = b''
