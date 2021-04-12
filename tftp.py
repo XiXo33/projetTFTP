@@ -42,25 +42,28 @@ def connect(socket, port):
         
 def decode_WRQandRRQ(message):
     """fonction permettant de récupérer l'opcode, le nom du fichier et le mode de transfert d'une requête et le renvoie dans un tuple"""        # sample of WRQ as byte array
+    blksize = 512
     message1 = message[0:2]                            
     message2 = message[2:]                                
     opcode = int.from_bytes(message1, byteorder='big') 
     args = message2.split(b'\x00')                      
     filename = args[0].decode('ascii')                
-    mode = args[1].decode('ascii')   
-
-    return opcode, filename, mode
+    mode = args[1].decode('ascii') 
+    if message.find(b"blksize") != -1:
+        blksize = int(message2.split(b'blksize\x00')[1][:-1])
+    return opcode, filename, mode, blksize
     
-def get_file(filename, addr_client, data):
+def get_file(filename, addr_client, data, blksize):
     s = initSocket()
     connect(s, 0) # Mettre 0 comme numéro de port permet d'en choisir un aléatoirement parmi ceux de libre
     addr_server = s.getsockname() # On récupère l'adresse du serveur et donc le nouvel numéro de port qui sera utilisé durant l'échange avec le client
-    a = b'\x00\x01'
-    opcodeDAT = b'\x00\x03' 
+    x0 = b'\x00'
+    a = b'\x01'
+    opcodeDAT = b'\x03' 
     with open(filename, "rb") as fileToGet:
         while True:
-            paquet = fileToGet.read(512) 
-            envoyerMessage(s, addr_client, opcodeDAT + a + paquet)
+            paquet = fileToGet.read(blksize) 
+            envoyerMessage(s, addr_client, x0 + opcodeDAT + x0 + a + paquet)
             
             data, _ = s.recvfrom(1500)
             if decodeOPCODE(data) != 4: # Si le message n'a pas été acquité alors on affiche un message d'erreur
@@ -69,20 +72,21 @@ def get_file(filename, addr_client, data):
             
             a = increment(a)   
                    
-            if len(paquet) < 512:
+            if len(paquet) < blksize:
                 break
             
         s.close()
         
-def put_file(addr_client, targetname):
+def put_file(addr_client, targetname, blksize):
     putting_file = open(targetname, "wb+")
     s = initSocket()
     connect(s, 0) # Mettre 0 comme numéro de port permet d'en choisir un aléatoirement parmi ceux de libre
     addr_server = s.getsockname() # On récupère l'adresse du serveur et donc le nouvel numéro de port qui sera utilisé durant l'échange avec le client
-    a = b'\x00\x00'
-    opcodeACK = b'\x00\x04'
+    x0 = b'\x00'
+    a = b'\x00'
+    opcodeACK = b'\x04'
     while True:
-        messageAenvoyer = opcodeACK + a
+        messageAenvoyer = x0 + opcodeACK + x0 + a
         envoyerMessage(s, addr_client, messageAenvoyer) # Le message je dois l'envoyer au client 
         data, _ = s.recvfrom(1500)
         if decodeOPCODE(data) != 3: # Si le data n'a pas été envoyé alors on affiche un message d'erreur
@@ -91,7 +95,7 @@ def put_file(addr_client, targetname):
             
         putting_file.write(data[4:])
         
-        if len(data) < 512:
+        if len(data) < blksize:
             break
         
     putting_file.close()
@@ -117,7 +121,7 @@ def whatHewants(opcode, addr_client, filename):
 def increment(a):
     """incrémente de 1 un byte"""
     a = int.from_bytes(a, byteorder='big') + 1
-    return a.to_bytes(2, byteorder='big')
+    return a.to_bytes(1, byteorder='big')
 ########################################################################
 #                             SERVER SIDE                              #
 ########################################################################
@@ -131,13 +135,13 @@ def runServer(addr, timeout, thread):
         data, addr_client = s.recvfrom(1500)
         if addr_client not in list_client: 
             connexionOFClient(list_client, addr_client)
-            opcode, filename, mode = decode_WRQandRRQ(data) # On décode la requête client
+            opcode, filename, mode, blksize = decode_WRQandRRQ(data) # On décode la requête client
             whatHewants(opcode, addr_client, filename)
                                     
         if opcode == 1:
-            get_file(filename, addr_client, data)
+            get_file(filename, addr_client, data, blksize)
         elif opcode == 2:
-            put_file(addr_client, filename)
+            put_file(addr_client, filename, blksize)
             
     s.close()
 
@@ -149,26 +153,32 @@ def put(addr, filename, targetname, blksize, timeout):
     putting_file = open(targetname, "rb")
     s = initSocket() 
     addr_client = s.getsockname()
-    messageAenvoyer = b"\x00\x02"+filename.encode('ascii')+b"\x00octet\x00"
+    message_blksize = b''
+    x0 = b'\x00'
+    if blksize != 512:
+        message_blksize = b'blksize'+x0+str(blksize).encode()+x0
+    messageAenvoyer = b"\x00\x02"+filename.encode('ascii')+b"\x00octet\x00"+message_blksize
     envoyerMessage(s, addr,messageAenvoyer)
     
     print(PINK + "[myclient:" + str(addr_client[1]) + " -> myserveur:" + str(addr[1]) + "] " + YELLOW + "WRQ" + CYAN + "=" + str(messageAenvoyer) + END)
 
-    a = b'\x00\x00'
-    opcodeDAT = b'\x00\x03' 
-    opcodeACK = b'\x00\x04'
+    
+    a = b'\x00'
+    opcodeDAT = b'\x03' 
+    opcodeACK = b'\x04'
     
     while True:
         data, addr_serv = s.recvfrom(1024)
+        
         s.settimeout(timeout)
         if decodeOPCODE(data) == 4:
             
-            messageACK = opcodeACK + a
+            messageACK = x0 + opcodeACK + x0 + a
             print(PINK + "[myserver:" + str(addr_serv[1]) + " -> myclient:" + str(addr_client[1]) + "] " + YELLOW + "ACK" + str(int.from_bytes(a, byteorder='big')) + CYAN + "=" + str(messageACK) + END)
             a = increment(a)
             
             paquet = putting_file.read(blksize) 
-            envoyerMessage(s, addr_serv, opcodeDAT + a + paquet)
+            envoyerMessage(s, addr_serv, x0 + opcodeDAT + a + paquet)
             
             print(PINK + "[myclient:" + str(addr_client[1]) + " -> myserveur:" + str(addr_serv[1]) + "] " + YELLOW + "DAT" + str(int.from_bytes(a, byteorder='big')) + CYAN + "=" + str(opcodeDAT + a + paquet) + END)
             
@@ -189,22 +199,25 @@ def get(addr, filename, targetname, blksize, timeout):
     
     s = initSocket()
     addr_client = s.getsockname()
-    
-    bsize = blksize.to_bytes(2, byteorder="big")
-    
-    messageAenvoyer = b"\x00\x01"+filename.encode('ascii')+b"\x00octet\x00" 
+    x0 = b'\x00'
+    message_blksize = b''
+    if blksize != 512:
+        message_blksize = b'blksize'+x0+str(blksize).encode()+x0
+    messageAenvoyer = b"\x00\x01"+filename.encode('ascii')+b"\x00octet\x00"+message_blksize
     envoyerMessage(s, addr,messageAenvoyer)
     
     print(PINK + "[myclient:" + str(addr_client[1]) + " -> myserveur:" + str(addr[1]) + "] " + YELLOW + "RRQ" + CYAN + "=" + str(messageAenvoyer) + END)
     
-    a = b'\x00\x01'
+    
+    a = b'\x01'
     while True:
         data, addr_serv = s.recvfrom(1024)
+        s.settimeout(timeout)
         if decodeOPCODE(data) == 3: 
             print(PINK + "[myserver:" + str(addr_serv[1]) + " -> myclient:" + str(addr_client[1]) + "] " + YELLOW + "DAT" + str(int.from_bytes(a, byteorder='big')) + CYAN + "="  + str(data) + END)
             
-            opcodeACK = b'\x00\x04'
-            messageAenvoyer = opcodeACK + a
+            opcodeACK = b'\x04'
+            messageAenvoyer = x0 + opcodeACK + x0 + a
             
             print(PINK + "[myclient:" + str(addr_client[1]) + " -> myserver:" + str(addr_serv[1]) + "] " + YELLOW + "ACK" + str(int.from_bytes(a, byteorder='big')) + CYAN + "=" + str(messageAenvoyer) + END)
             a = increment(a)
